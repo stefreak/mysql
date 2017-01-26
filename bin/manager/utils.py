@@ -115,6 +115,7 @@ BACKUP_LOCK_KEY = env('BACKUP_LOCK_KEY', 'mysql-backup-running')
 LAST_BINLOG_KEY = env('LAST_BINLOG_KEY', 'mysql-last-binlog')
 BACKUP_NAME = env('BACKUP_NAME', 'mysql-backup-%Y-%m-%dT%H-%M-%SZ')
 BACKUP_TTL = env('BACKUP_TTL', 86400, fn='{}s'.format) # every 24 hours
+SERVICE_ADDRESS = env('SERVICE_ADDRESS', None)
 
 def get_ip(iface='eth0'):
     """
@@ -122,6 +123,9 @@ def get_ip(iface='eth0'):
     ref http://code.activestate.com/recipes/439094-get-the-ip-address\
         -associated-with-a-network-inter/
     """
+    if SERVICE_ADDRESS:
+        return SERVICE_ADDRESS
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     return socket.inet_ntoa(fcntl.ioctl(
         sock.fileno(),

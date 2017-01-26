@@ -4,10 +4,11 @@ import os
 from manager.utils import debug, env, to_flag
 
 # pylint: disable=import-error,dangerous-default-value,invalid-name
-import manta as pymanta
+import boto3
+import botocore
 
-# Manta client barfing if we log the body of binary data
-logging.getLogger('manta').setLevel(logging.INFO)
+loglevel = logging.getLevelName(os.environ.get('LOG_LEVEL_BOTO', 'INFO'))
+boto3.set_stream_logger('boto3', loglevel)
 
 class Manta(object):
     """
@@ -15,25 +16,18 @@ class Manta(object):
     our MySQL backups.
     """
     def __init__(self, envs=os.environ):
-        self.account = env('MANTA_USER', None, envs)
-        self.user = env('MANTA_SUBUSER', None, envs)
-        self.role = env('MANTA_ROLE', None, envs)
-        self.key_id = env('MANTA_KEY_ID', None, envs)
-        self.url = env('MANTA_URL', 'https://us-east.manta.joyent.com', envs)
-        self.bucket = env('MANTA_BUCKET', '/{}/stor'.format(self.account), envs)
-        is_tls = env('MANTA_TLS_INSECURE', False, envs, fn=to_flag)
+        self.bucket_name = env('AWS_S3_BUCKET', None, envs)
+        self.endpoint = env('AWS_S3_ENDPOINT', 'https://s3.cloud.syseleven.net', envs)
+        self.access = env('AWS_ACCESS_KEY_ID', None, envs)
+        self.secret = env('AWS_SECRET_ACCESS_KEY', None, envs)
 
-        # we don't want to use `env` here because we have a different
-        # de-munging to do
-        self.private_key = envs.get('MANTA_PRIVATE_KEY', '').replace('#', '\n')
-        self.signer = pymanta.PrivateKeySigner(self.key_id, self.private_key)
-        self.client = pymanta.MantaClient(
-            self.url,
-            self.account,
-            subuser=self.user,
-            role=self.role,
-            disable_ssl_certificate_validation=is_tls,
-            signer=self.signer)
+        assert self.bucket_name, "missing bucket"
+        assert self.endpoint, "missing endpoint"
+        assert self.access, "missing access key"
+        assert self.secret, "missing secret"
+
+        self.s3 = boto3.resource('s3', endpoint_url = self.endpoint, config=botocore.client.Config(s3={'addressing_style': 'virtual'}))
+        self.bucket = self.s3.Bucket(self.bucket_name)
 
     @debug
     def get_backup(self, backup_id):
@@ -42,16 +36,21 @@ class Manta(object):
             os.mkdir('/tmp/backup', 0770)
         except OSError:
             pass
-        outfile = '/tmp/backup/{}'.format(backup_id)
-        mpath = '{}/{}'.format(self.bucket, backup_id)
-        data = self.client.get_object(mpath)
-        with open(outfile, 'w') as f:
-            f.write(data)
+        self.bucket.download_file(backup_id, '/tmp/backup/{}'.format(backup_id))
 
+    @debug 
+    def exists(self, backup_id):
+        try:
+            self.s3.Object(self.bucket_name, backup_id).load()
+            return True
+        except botocore.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == "404":
+                return False
+            else:
+                raise
+
+    @debug
     def put_backup(self, backup_id, infile):
         """ Upload the backup file to the expected path """
-        # TODO: stream this backup once python-manta supports it:
-        # ref https://github.com/joyent/python-manta/issues/6
-        mpath = '{}/{}'.format(self.bucket, backup_id)
-        with open(infile, 'r') as f:
-            self.client.put_object(mpath, file=f)
+        if not self.exists(backup_id):
+            self.bucket.upload_file(infile, backup_id)

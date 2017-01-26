@@ -21,7 +21,7 @@ RUN set -ex \
     && python get-pip.py \
     && pip install \
        python-Consul==0.4.7 \
-       manta==2.5.0 \
+       boto3==1.4.1 \
        mock==2.0.0 \
     # \
     # Add Consul from https://releases.hashicorp.com/consul \

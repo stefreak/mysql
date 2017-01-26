@@ -10,7 +10,8 @@
       "port": 3306,
       "health": "python /usr/local/bin/manage.py health",
       "poll": 5,
-      "ttl": 25
+      "ttl": 25,
+      "interfaces": "{{ if .SERVICE_ADDRESS }}static:{{ .SERVICE_ADDRESS }}{{ else }}inet{{ end }}"
     }
   ],
   "backends": [
